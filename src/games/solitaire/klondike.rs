@@ -1,6 +1,8 @@
 use cards::{Shuffler, french};
-use cards::french::{FrenchPlayingCard, Rank, Suit, Color};
+use cards::french::{Rank, Suit, Color};
 use std::cmp;
+
+pub type Card = french::FrenchPlayingCard;
 
 const MAX_DECK_SIZE: usize = 24;
 
@@ -39,7 +41,7 @@ pub enum KlondikeErr {
 pub type KlondikeResult<T> = Result<T, KlondikeErr>;
 
 pub struct KlondikeSolitaireGame {
-  cards: Vec<FrenchPlayingCard>,
+  cards: Vec<Card>,
   foundations: [Foundation; 4],
   piles: [Pile; 7],
   deck: Deck,
@@ -120,7 +122,7 @@ impl KlondikeSolitaireGame {
 }
 
 pub struct Deck {
-  cards: Vec<FrenchPlayingCard>,
+  cards: Vec<Card>,
   draw_count: usize,
   visible_index: usize,
   visible_count: usize,
@@ -138,7 +140,7 @@ impl Deck {
     }
   }
 
-  pub fn reset(&mut self, cards: &[FrenchPlayingCard]) {
+  pub fn reset(&mut self, cards: &[Card]) {
     assert!(cards.len() <= MAX_DECK_SIZE);
 
     self.cards.clear();
@@ -155,28 +157,28 @@ impl Deck {
     self.cards.len()
   }
 
-  pub fn visible_cards(&self) -> Option<&[FrenchPlayingCard]> {
+  pub fn visible_cards(&self) -> Option<&[Card]> {
     match self.visible_count {
       0 => None,
       count => Some(&self.cards[self.visible_index..self.visible_index+count]),
     }
   }
 
-  pub fn waste_cards(&self) -> Option<&[FrenchPlayingCard]> {
+  pub fn waste_cards(&self) -> Option<&[Card]> {
     match self.visible_index {
       0 => None,
       index => Some(&self.cards[..index]),
     }
   }
 
-  pub fn remaining_cards(&self) -> Option<&[FrenchPlayingCard]> {
+  pub fn remaining_cards(&self) -> Option<&[Card]> {
     match self.visible_index + self.visible_count {
       index if index < self.cards.len() => Some(&self.cards[index..]),
       _ => None,
     }
   }
 
-  pub fn take_one(&mut self) -> Option<FrenchPlayingCard> {
+  pub fn take_one(&mut self) -> Option<Card> {
     match self.visible_count {
       0 => None,
       _ => {
@@ -189,7 +191,7 @@ impl Deck {
   pub fn draw(&mut self) {
     // TODO return value?
     // boolean: true if visible cards changed
-    // &[FrenchPlayingCard]: visible cards
+    // &[Card]: visible cards
     self.visible_index += self.visible_count;
 
     if self.visible_index >= self.cards.len() {
@@ -202,8 +204,8 @@ impl Deck {
 }
 
 pub struct Pile {
-  visible_cards: Vec<FrenchPlayingCard>,
-  hidden_cards: Vec<FrenchPlayingCard>,
+  visible_cards: Vec<Card>,
+  hidden_cards: Vec<Card>,
 }
 
 impl Pile {
@@ -214,7 +216,7 @@ impl Pile {
     }
   }
 
-  pub fn reset(&mut self, cards: &[FrenchPlayingCard]) {
+  pub fn reset(&mut self, cards: &[Card]) {
     assert!(cards.len() <= 7 && cards.len() > 0);
 
     self.hidden_cards.clear();
@@ -234,7 +236,7 @@ impl Pile {
     }
   }
 
-  pub fn can_push(&self, card: FrenchPlayingCard) -> bool {
+  pub fn can_push(&self, card: Card) -> bool {
     match self.next_card() {
       Some((Some(color), rank)) => card.color() == color && card.rank() == rank,
       Some((None, rank)) => card.rank() == rank,
@@ -256,9 +258,9 @@ impl Foundation {
     }
   }
 
-  pub fn top(&self) -> Option<FrenchPlayingCard> {
+  pub fn top(&self) -> Option<Card> {
     match self.current_rank_index {
-      Some(i) => Some(FrenchPlayingCard::new(self.suit, RANKS[i])),
+      Some(i) => Some(Card::new(self.suit, RANKS[i])),
       None => None,
     }
   }
@@ -283,23 +285,23 @@ impl Foundation {
     }
   }
 
-  pub fn next_card(&self) -> Option<FrenchPlayingCard> {
+  pub fn next_card(&self) -> Option<Card> {
     match self.next_rank() {
-      Some(r) => Some(FrenchPlayingCard::new(self.suit, r)),
+      Some(r) => Some(Card::new(self.suit, r)),
       None => None,
     }
   }
 
-  pub fn push(&mut self) -> Option<FrenchPlayingCard> {
+  pub fn push(&mut self) -> Option<Card> {
     match self.current_rank_index {
       Some(i) if i == RANKS.len() - 1 => None,
       Some(i) => {
         self.current_rank_index = Some(i+1);
-        Some(FrenchPlayingCard::new(self.suit, RANKS[i]))
+        Some(Card::new(self.suit, RANKS[i]))
       },
       None => {
         self.current_rank_index = Some(0);
-        Some(FrenchPlayingCard::new(self.suit, RANKS[0]))
+        Some(Card::new(self.suit, RANKS[0]))
       }
     }
   }
@@ -308,15 +310,15 @@ impl Foundation {
     self.current_rank_index = None;
   }
 
-  pub fn pop(&mut self) -> Option<FrenchPlayingCard> {
+  pub fn pop(&mut self) -> Option<Card> {
     match self.current_rank_index {
       Some(0) => {
         self.current_rank_index = None;
-        Some(FrenchPlayingCard::new(self.suit, RANKS[0]))
+        Some(Card::new(self.suit, RANKS[0]))
       },
       Some(i) => {
         self.current_rank_index = Some(i-1);
-        Some(FrenchPlayingCard::new(self.suit, RANKS[i-1]))
+        Some(Card::new(self.suit, RANKS[i-1]))
       },
       None => None
     }
@@ -326,7 +328,7 @@ impl Foundation {
 #[cfg(test)]
 mod test {
   macro_rules! card {
-    ($suit:expr, $rank:expr) => (FrenchPlayingCard::new($suit, $rank));
+    ($suit:expr, $rank:expr) => (Card::new($suit, $rank));
   }
 
   mod foundation {
@@ -377,7 +379,7 @@ mod test {
 
   mod deck {
     use super::super::*;
-    use cards::french::{FrenchPlayingCard, Suit, Rank};
+    use cards::french::{Suit, Rank};
 
     #[test]
     fn new_deck() {
@@ -429,7 +431,7 @@ mod test {
       }
     }
 
-    fn test_cards(name: &str, expected: Option<&[FrenchPlayingCard]>, actual: Option<&[FrenchPlayingCard]>) {
+    fn test_cards(name: &str, expected: Option<&[Card]>, actual: Option<&[Card]>) {
       match expected {
         Some(expected) => {
           assert!(actual.is_some(), "{}", name);
@@ -443,7 +445,7 @@ mod test {
       };
     }
 
-    fn test_deck(deck: &Deck, visible: Option<&[FrenchPlayingCard]>, waste: Option<&[FrenchPlayingCard]>, remaining: Option<&[FrenchPlayingCard]>) {
+    fn test_deck(deck: &Deck, visible: Option<&[Card]>, waste: Option<&[Card]>, remaining: Option<&[Card]>) {
       test_cards("visible", visible, deck.visible_cards());
       test_cards("waste", waste, deck.waste_cards());
       test_cards("remaining", remaining, deck.remaining_cards());
