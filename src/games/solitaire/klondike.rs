@@ -34,8 +34,11 @@ fn rank_index(rank: Rank) -> usize {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum KlondikeErr {
+  Capacity,
+  InvalidCard,
   InvalidRank,
   InvalidSuit,
+  InvalidColor,
 }
 
 pub type KlondikeResult<T> = Result<T, KlondikeErr>;
@@ -216,6 +219,14 @@ impl Pile {
     }
   }
 
+  pub fn len(&self) -> usize {
+    self.visible_cards.len() + self.hidden_cards.len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.visible_cards.is_empty()
+  }
+
   pub fn reset(&mut self, cards: &[Card]) {
     assert!(cards.len() <= 7 && cards.len() > 0);
 
@@ -243,12 +254,34 @@ impl Pile {
     }
   }
 
-  pub fn can_push(&self, card: Card) -> bool {
+  pub fn can_push(&self, card: Card) -> KlondikeResult<()> {
     match self.next_card() {
-      Some((Some(color), rank)) => card.color() == color && card.rank() == rank,
-      Some((None, rank)) => card.rank() == rank,
-      None => false,
+      Some((Some(color), rank)) => {
+        if card.color() == color && card.rank() == rank {
+          Ok(())
+        } else {
+          Err(KlondikeErr::InvalidCard)
+        }
+      },
+      Some((None, rank)) => {
+        if card.rank() == rank {
+          Ok(())
+        } else {
+          Err(KlondikeErr::InvalidCard)
+        }
+      },
+      None => Err(KlondikeErr::Capacity),
     }
+  }
+
+  pub fn push(&mut self, card: Card) -> KlondikeResult<()> {
+    let result = self.can_push(card);
+
+    if result.is_ok() {
+      self.visible_cards.push(card);
+    }
+
+    return result;
   }
 }
 
@@ -336,6 +369,123 @@ impl Foundation {
 mod test {
   macro_rules! card {
     ($suit:expr, $rank:expr) => (Card::new($suit, $rank));
+  }
+
+  mod pile {
+    use super::super::*;
+    use cards::french::{Color, Suit, Rank, new_standard_deck};
+
+    #[test]
+    fn new_pile() {
+      let pile = Pile::new();
+      assert!(pile.is_empty());
+      assert!(pile.len() == 0);
+      assert!(pile.next_card() == Some((None, Rank::King)));
+    }
+
+    #[test]
+    fn len() {
+      let mut pile = Pile::new();
+      pile.reset(&[card!(Suit::Spades, Rank::Number(3))]);
+      assert!(pile.len() == 1);
+      assert!(!pile.is_empty());
+
+      pile.reset(&[card!(Suit::Spades, Rank::Number(3)), card!(Suit::Hearts, Rank::Queen)]);
+      assert!(pile.len() == 2);
+      assert!(!pile.is_empty());
+    }
+
+    #[test]
+    fn push_changes_next_card() {
+      let mut pile = Pile::new();
+      let cards = &[
+        card!(Suit::Spades, Rank::King),
+        card!(Suit::Hearts, Rank::Queen),
+        card!(Suit::Clubs, Rank::Jack),
+        card!(Suit::Diamonds, Rank::Number(10)),
+        card!(Suit::Clubs, Rank::Number(9)),
+        card!(Suit::Hearts, Rank::Number(8)),
+        card!(Suit::Clubs, Rank::Number(7)),
+        card!(Suit::Hearts, Rank::Number(6)),
+        card!(Suit::Spades, Rank::Number(5)),
+        card!(Suit::Diamonds, Rank::Number(4)),
+        card!(Suit::Clubs, Rank::Number(3)),
+        card!(Suit::Hearts, Rank::Number(2)),
+        card!(Suit::Spades, Rank::Ace),
+      ];
+
+      let mut iter = cards.iter().map(|c| *c).peekable();
+
+      while let Some(card) = iter.next() {
+        pile.push(card).unwrap();
+
+        match iter.peek() {
+          Some(next) => assert!(pile.next_card() == Some((Some(next.color()), next.rank()))),
+          None => assert!(pile.next_card().is_none()),
+        }
+      }
+
+      assert!(pile.len() == cards.len());
+    }
+
+    #[test]
+    fn can_push_king_with_empty_pile() {
+      let pile = Pile::new();
+
+      assert!(pile.next_card() == Some((None, Rank::King)));
+
+      for card in new_standard_deck().iter().map(|c| *c) {
+        if card.rank() == Rank::King {
+          assert!(pile.can_push(card).is_ok());
+        } else {
+          assert!(pile.can_push(card) == Err(KlondikeErr::InvalidCard));
+        }
+      }
+    }
+
+    #[test]
+    fn can_push_nothing_with_ace() {
+      let mut pile = Pile::new();
+      pile.reset(&[card!(Suit::Hearts, Rank::Ace)]);
+
+      assert!(pile.next_card().is_none());
+
+      for card in new_standard_deck().iter() {
+        assert!(pile.can_push(*card) == Err(KlondikeErr::Capacity));
+      }
+    }
+
+    #[test]
+    fn can_push_red_with_black_visible() {
+      let mut pile = Pile::new();
+      pile.reset(&[card!(Suit::Spades, Rank::King)]);
+
+      assert!(pile.next_card() == Some((Some(Color::Red), Rank::Queen)));
+
+      for card in new_standard_deck().iter().map(|c| *c) {
+        if card.color() == Color::Red && card.rank() == Rank::Queen {
+          assert!(pile.can_push(card).is_ok());
+        } else {
+          assert!(pile.can_push(card) == Err(KlondikeErr::InvalidCard));
+        }
+      }
+    }
+
+    #[test]
+    fn can_push_black_with_red_visible() {
+      let mut pile = Pile::new();
+      pile.reset(&[card!(Suit::Hearts, Rank::Number(2))]);
+
+      assert!(pile.next_card() == Some((Some(Color::Black), Rank::Ace)));
+
+      for card in new_standard_deck().iter().map(|c| *c) {
+        if card.color() == Color::Black && card.rank() == Rank::Ace {
+          assert!(pile.can_push(card).is_ok());
+        } else {
+          assert!(pile.can_push(card) == Err(KlondikeErr::InvalidCard));
+        }
+      }
+    }
   }
 
   mod foundation {
