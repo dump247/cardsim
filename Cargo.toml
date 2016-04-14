@@ -1,0 +1,7 @@
+[package]
+name = "solitairesim"
+version = "0.1.0"
+authors = ["Cory Thomas <cthomas7577@gmail.com>"]
+
+[dependencies]
+rand = "0.3.14"
