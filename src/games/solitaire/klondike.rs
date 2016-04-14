@@ -220,10 +220,17 @@ impl Pile {
     assert!(cards.len() <= 7 && cards.len() > 0);
 
     self.hidden_cards.clear();
-    self.hidden_cards.extend_from_slice(&cards[0..cards.len()-1]);
+
+    if cards.len() > 1 {
+      self.hidden_cards.extend_from_slice(&cards[0..cards.len()-1]);
+    }
 
     self.visible_cards.clear();
-    self.visible_cards.push(cards[cards.len()-1]);
+
+    match cards.last() {
+      Some(c) => self.visible_cards.push(*c),
+      None => {},
+    };
   }
 
   pub fn next_card(&self) -> Option<(Option<Color>, Rank)> {
