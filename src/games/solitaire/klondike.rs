@@ -2,8 +2,23 @@ use cards::{Shuffler, french};
 use cards::french::{FrenchPlayingCard, Rank, Suit};
 use std::cmp;
 
-const FOUNDATION_SIZE: usize = (french::STANDARD_DECK_SIZE / 4) as usize;
 const MAX_DECK_SIZE: usize = 24;
+
+static RANKS: &'static [Rank; 13] = &[
+    Rank::Ace,
+    Rank::Number(2),
+    Rank::Number(3),
+    Rank::Number(4),
+    Rank::Number(5),
+    Rank::Number(6),
+    Rank::Number(7),
+    Rank::Number(8),
+    Rank::Number(9),
+    Rank::Number(10),
+    Rank::Jack,
+    Rank::Queen,
+    Rank::King,
+];
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum KlondikeErr {
@@ -202,27 +217,30 @@ impl Pile {
 
 pub struct Foundation {
   suit: Suit,
-  cards: Vec<FrenchPlayingCard>,
+  current_rank_index: Option<usize>,
 }
 
 impl Foundation {
   pub fn new(suit: Suit) -> Foundation {
     Foundation {
       suit: suit,
-      cards: Vec::with_capacity(FOUNDATION_SIZE),
+      current_rank_index: None,
     }
   }
 
-  pub fn top(&self) -> Option<&FrenchPlayingCard> {
-    self.cards.last()
+  pub fn top(&self) -> Option<FrenchPlayingCard> {
+    match self.current_rank_index {
+      Some(i) => Some(FrenchPlayingCard::new(self.suit, RANKS[i])),
+      None => None,
+    }
   }
 
   pub fn is_full(&self) -> bool {
-    self.cards.len() == FOUNDATION_SIZE
+    self.current_rank_index == Some(RANKS.len() - 1)
   }
 
   pub fn is_empty(&self) -> bool {
-    self.cards.is_empty()
+    self.current_rank_index.is_none()
   }
 
   pub fn suit(&self) -> Suit {
@@ -230,17 +248,10 @@ impl Foundation {
   }
 
   pub fn next_rank(&self) -> Option<Rank> {
-    if let Some(top_card) = self.top() {
-      match top_card.rank() {
-        Rank::Ace        => Some(Rank::Number(2)),
-        Rank::Number(10) => Some(Rank::Jack),
-        Rank::Number(n)  => Some(Rank::Number(n+1)),
-        Rank::Jack       => Some(Rank::Queen),
-        Rank::Queen      => Some(Rank::King),
-        Rank::King       => None,
-      }
-    } else {
-      Some(Rank::Ace)
+    match self.current_rank_index {
+      Some(i) if i == RANKS.len() - 1 => None,
+      Some(i) => Some(RANKS[i+1]),
+      None => Some(RANKS[0]),
     }
   }
 
@@ -251,33 +262,36 @@ impl Foundation {
     }
   }
 
-  pub fn can_push(&self, card: &FrenchPlayingCard) -> KlondikeResult<()> {
-    if card.suit() != self.suit {
-      return Err(KlondikeErr::InvalidSuit);
+  pub fn push(&mut self) -> Option<FrenchPlayingCard> {
+    match self.current_rank_index {
+      Some(i) if i == RANKS.len() - 1 => None,
+      Some(i) => {
+        self.current_rank_index = Some(i+1);
+        Some(FrenchPlayingCard::new(self.suit, RANKS[i]))
+      },
+      None => {
+        self.current_rank_index = Some(0);
+        Some(FrenchPlayingCard::new(self.suit, RANKS[0]))
+      }
     }
-
-    match self.next_rank() {
-      Some(r) if card.rank() == r => Ok(()),
-      Some(_) | None => Err(KlondikeErr::InvalidRank),
-    }
-  }
-
-  pub fn push(&mut self, card: FrenchPlayingCard) -> KlondikeResult<()> {
-    let result = self.can_push(&card);
-
-    if result.is_ok() {
-      self.cards.push(card);
-    }
-
-    return result;
   }
 
   pub fn clear(&mut self) {
-    self.cards.clear();
+    self.current_rank_index = None;
   }
 
   pub fn pop(&mut self) -> Option<FrenchPlayingCard> {
-    self.cards.pop()
+    match self.current_rank_index {
+      Some(0) => {
+        self.current_rank_index = None;
+        Some(FrenchPlayingCard::new(self.suit, RANKS[0]))
+      },
+      Some(i) => {
+        self.current_rank_index = Some(i-1);
+        Some(FrenchPlayingCard::new(self.suit, RANKS[i-1]))
+      },
+      None => None
+    }
   }
 }
 
@@ -289,8 +303,7 @@ mod test {
 
   mod foundation {
     use super::super::*;
-    use cards::french;
-    use cards::french::{FrenchPlayingCard, Suit, Rank};
+    use cards::french::{Suit, Rank};
 
     #[test]
     fn new_foundation() {
@@ -301,50 +314,36 @@ mod test {
       assert!(f.suit() == Suit::Hearts);
     }
 
-    fn expect_rank(f: &Foundation, suit: Suit, rank: Option<Rank>) {
-      for card in french::new_standard_deck() {
-        if card.suit() == suit {
-          if rank.is_some() && card.rank() == rank.unwrap() {
-            assert!(f.can_push(&card).is_ok());
-          } else {
-            assert!(f.can_push(&card).unwrap_err() == KlondikeErr::InvalidRank);
-          }
-        } else {
-          assert!(f.can_push(&card).unwrap_err() == KlondikeErr::InvalidSuit);
-        }
-      }
-    }
-
     #[test]
     fn foundation_push() {
       let mut f = Foundation::new(Suit::Hearts);
-      expect_rank(&f, Suit::Hearts, Some(Rank::Ace));
-      f.push(card!(Suit::Hearts, Rank::Ace)).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Number(2)));
-      f.push(card!(Suit::Hearts, Rank::Number(2))).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Number(3)));
-      f.push(card!(Suit::Hearts, Rank::Number(3))).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Number(4)));
-      f.push(card!(Suit::Hearts, Rank::Number(4))).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Number(5)));
-      f.push(card!(Suit::Hearts, Rank::Number(5))).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Number(6)));
-      f.push(card!(Suit::Hearts, Rank::Number(6))).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Number(7)));
-      f.push(card!(Suit::Hearts, Rank::Number(7))).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Number(8)));
-      f.push(card!(Suit::Hearts, Rank::Number(8))).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Number(9)));
-      f.push(card!(Suit::Hearts, Rank::Number(9))).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Number(10)));
-      f.push(card!(Suit::Hearts, Rank::Number(10))).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Jack));
-      f.push(card!(Suit::Hearts, Rank::Jack)).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::Queen));
-      f.push(card!(Suit::Hearts, Rank::Queen)).unwrap();
-      expect_rank(&f, Suit::Hearts, Some(Rank::King));
-      f.push(card!(Suit::Hearts, Rank::King)).unwrap();
-      expect_rank(&f, Suit::Hearts, None);
+      assert!(f.next_rank() == Some(Rank::Ace));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Number(2)));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Number(3)));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Number(4)));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Number(5)));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Number(6)));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Number(7)));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Number(8)));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Number(9)));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Number(10)));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Jack));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::Queen));
+      f.push().unwrap();
+      assert!(f.next_rank() == Some(Rank::King));
+      f.push().unwrap();
+      assert!(f.next_rank().is_none());
     }
   }
 
