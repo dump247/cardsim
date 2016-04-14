@@ -1,5 +1,5 @@
 use cards::{Shuffler, french};
-use cards::french::{FrenchPlayingCard, Rank, Suit};
+use cards::french::{FrenchPlayingCard, Rank, Suit, Color};
 use std::cmp;
 
 const MAX_DECK_SIZE: usize = 24;
@@ -19,6 +19,16 @@ static RANKS: &'static [Rank; 13] = &[
     Rank::Queen,
     Rank::King,
 ];
+
+fn rank_index(rank: Rank) -> usize {
+  for (i, r) in RANKS.iter().enumerate() {
+    if *r == rank {
+      return i;
+    }
+  }
+
+  panic!("Unkown rank {:?}", rank);
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum KlondikeErr {
@@ -212,6 +222,24 @@ impl Pile {
 
     self.visible_cards.clear();
     self.visible_cards.push(cards[cards.len()-1]);
+  }
+
+  pub fn next_card(&self) -> Option<(Option<Color>, Rank)> {
+    match self.visible_cards.last() {
+      Some(card) => match rank_index(card.rank()) {
+        0 => None,
+        i => Some((Some(card.color().other()), RANKS[i-1])),
+      },
+      None => Some((None, Rank::King)),
+    }
+  }
+
+  pub fn can_push(&self, card: FrenchPlayingCard) -> bool {
+    match self.next_card() {
+      Some((Some(color), rank)) => card.color() == color && card.rank() == rank,
+      Some((None, rank)) => card.rank() == rank,
+      None => false,
+    }
   }
 }
 

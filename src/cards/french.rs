@@ -8,6 +8,15 @@ pub enum Color {
   Black,
 }
 
+impl Color {
+  pub fn other(&self) -> Color {
+    match *self {
+      Color::Red => Color::Black,
+      Color::Black => Color::Red,
+    }
+  }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Suit {
   Diamonds,
