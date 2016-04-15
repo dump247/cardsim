@@ -5,6 +5,19 @@ use std::cmp;
 pub type Card = french::FrenchPlayingCard;
 
 const MAX_DECK_SIZE: usize = 24;
+const NUM_PILES: usize = 7;
+const NUM_FOUNDATIONS: usize = 4;
+
+pub enum MoveSource {
+  Deck,
+  Foundation(Suit),
+  Pile(u8),
+}
+
+pub enum MoveTarget {
+  Foundation,
+  Pile(u8),
+}
 
 static RANKS: &'static [Rank; 13] = &[
     Rank::Ace,
@@ -39,14 +52,15 @@ pub enum KlondikeErr {
   InvalidRank,
   InvalidSuit,
   InvalidColor,
+  InvalidMove,
 }
 
 pub type KlondikeResult<T> = Result<T, KlondikeErr>;
 
 pub struct KlondikeSolitaireGame {
   cards: Vec<Card>,
-  foundations: [Foundation; 4],
-  piles: [Pile; 7],
+  foundations: [Foundation; NUM_FOUNDATIONS],
+  piles: [Pile; NUM_PILES],
   deck: Deck,
 }
 
@@ -121,6 +135,117 @@ impl KlondikeSolitaireGame {
     self.piles[6].reset(&self.cards[21..28]);
 
     self.deck.reset(&self.cards[28..]);
+  }
+
+  pub fn move_cards(&mut self, source: MoveSource, target: MoveTarget) -> KlondikeResult<()> {
+    match (source, target) {
+      (MoveSource::Deck, MoveTarget::Foundation) => {
+        let visible_card = {
+          match self.deck.top() {
+            Some(c) => c,
+            None => { return Err(KlondikeErr::InvalidMove); },
+          }
+        };
+
+        {
+          let foundation = self.foundation_mut(visible_card.suit());
+          if foundation.next_card() != Some(visible_card) {
+            return Err(KlondikeErr::InvalidMove);
+          }
+          foundation.push();
+        }
+
+        self.deck.pop();
+        Ok(())
+      },
+      (MoveSource::Deck, MoveTarget::Pile(pile_index)) => {
+        let pile_index = pile_index as usize;
+        assert!(pile_index < NUM_PILES);
+
+        let visible_card = {
+          match self.deck.top() {
+            Some(c) => c,
+            None => { return Err(KlondikeErr::InvalidMove); },
+          }
+        };
+
+        match self.piles[pile_index].push(visible_card) {
+          Ok(_) => {
+            self.deck.pop();
+            Ok(())
+          },
+          Err(_) => Err(KlondikeErr::InvalidMove),
+        }
+      },
+      (MoveSource::Foundation(_), MoveTarget::Foundation) => {
+        // Noop
+        Ok(())
+      },
+      (MoveSource::Foundation(suit), MoveTarget::Pile(pile_index)) => {
+        let pile_index = pile_index as usize;
+        assert!(pile_index < NUM_PILES);
+
+        let visible_card = {
+          match self.foundation(suit).top() {
+            Some(c) => c,
+            None => { return Err(KlondikeErr::InvalidMove); }
+          }
+        };
+
+        match self.piles[pile_index].push(visible_card) {
+          Ok(_) => {
+            self.foundation_mut(suit).pop();
+            Ok(())
+          },
+          Err(_) => Err(KlondikeErr::InvalidMove),
+        }
+      },
+      (MoveSource::Pile(source_pile_index), MoveTarget::Pile(target_pile_index)) => {
+        let source_pile_index = source_pile_index as usize;
+        assert!(source_pile_index < NUM_PILES);
+
+        let target_pile_index = target_pile_index as usize;
+        assert!(target_pile_index < NUM_PILES);
+
+        if source_pile_index == target_pile_index {
+          // Noop
+          return Ok(());
+        }
+
+        let piles_ptr = self.piles.as_mut_ptr();
+        let target_pile = &mut self.piles[target_pile_index];
+
+        // Seems like there should be a better way to do this, but can't get
+        // two mutable references to elements of `piles` in the same scope.
+        // This should be safe since we ensure the source and target indexes
+        // are different.
+        unsafe {
+          (*piles_ptr.offset(source_pile_index as isize)).move_to(target_pile)
+        }
+      },
+      (MoveSource::Pile(pile_index), MoveTarget::Foundation) => {
+        let pile_index = pile_index as usize;
+        assert!(pile_index < NUM_PILES);
+
+        let visible_card = {
+          match self.piles[pile_index].top() {
+            Some(c) => c,
+            None => { return Err(KlondikeErr::InvalidMove); },
+          }
+        };
+
+        {
+          let foundation = self.foundation_mut(visible_card.suit());
+          if foundation.next_card() != Some(visible_card) {
+            return Err(KlondikeErr::InvalidMove);
+          }
+          foundation.push();
+        }
+
+        self.piles[pile_index].pop();
+        Ok(())
+      }
+    }
   }
 }
 
