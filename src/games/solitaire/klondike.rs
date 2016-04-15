@@ -160,6 +160,13 @@ impl Deck {
     self.cards.len()
   }
 
+  pub fn top(&self) -> Option<Card> {
+    match self.visible_count {
+      0 => None,
+      count => Some(self.cards[self.visible_index+count-1]),
+    }
+  }
+
   pub fn visible_cards(&self) -> Option<&[Card]> {
     match self.visible_count {
       0 => None,
@@ -627,6 +634,36 @@ mod test {
 
       deck.draw();
       test_deck(&deck, None, None, Some(&[card!(Suit::Hearts, Rank::Jack)]));
+    }
+
+    #[test]
+    fn top() {
+      let mut deck = Deck::new(3);
+      let cards = [
+        card!(Suit::Hearts, Rank::Jack),
+        card!(Suit::Diamonds, Rank::Number(3)),
+        card!(Suit::Hearts, Rank::Queen),
+        card!(Suit::Spades, Rank::Jack),
+        card!(Suit::Clubs, Rank::Jack),
+      ];
+      deck.reset(&cards);
+
+      assert!(deck.top().is_none());
+      deck.draw();
+
+      assert!(deck.top() == Some(card!(Suit::Hearts, Rank::Queen)), "{:?}", deck.top());
+      deck.pop().unwrap();
+
+      assert!(deck.top() == Some(card!(Suit::Diamonds, Rank::Number(3))));
+      deck.pop().unwrap();
+
+      assert!(deck.top() == Some(card!(Suit::Hearts, Rank::Jack)));
+      deck.pop().unwrap();
+
+      assert!(deck.top().is_none());
+      deck.draw();
+
+      assert!(deck.top() == Some(card!(Suit::Clubs, Rank::Jack)));
     }
 
     #[test]
