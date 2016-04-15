@@ -181,7 +181,7 @@ impl Deck {
     }
   }
 
-  pub fn take_one(&mut self) -> Option<Card> {
+  pub fn pop(&mut self) -> Option<Card> {
     match self.visible_count {
       0 => None,
       _ => {
@@ -659,13 +659,13 @@ mod test {
     }
 
     #[test]
-    fn take_one_when_empty() {
+    fn pop_when_empty() {
       let mut d = Deck::new(1);
-      assert!(d.take_one().is_none());
+      assert!(d.pop().is_none());
     }
 
     #[test]
-    fn take_one_with_seven_cards_draw3() {
+    fn pop_with_seven_cards_draw3() {
       let mut deck = Deck::new(3);
       let cards = [
         card!(Suit::Hearts, Rank::Jack),
@@ -678,19 +678,19 @@ mod test {
       ];
 
       deck.reset(&cards);
-      assert!(deck.take_one().is_none());
+      assert!(deck.pop().is_none());
 
       // Move to first 3 cards
       deck.draw();
 
       // Take all 3 visible cards
-      assert!(deck.take_one() == Some(card!(Suit::Hearts, Rank::Queen)));
+      assert!(deck.pop() == Some(card!(Suit::Hearts, Rank::Queen)));
       assert!(deck.len() == 6);
       test_deck(&deck, Some(&cards[0..2]), None, Some(&cards[3..7]));
-      assert!(deck.take_one() == Some(card!(Suit::Diamonds, Rank::Number(3))));
+      assert!(deck.pop() == Some(card!(Suit::Diamonds, Rank::Number(3))));
       assert!(deck.len() == 5);
       test_deck(&deck, Some(&cards[0..1]), None, Some(&cards[3..7]));
-      assert!(deck.take_one() == Some(card!(Suit::Hearts, Rank::Jack)));
+      assert!(deck.pop() == Some(card!(Suit::Hearts, Rank::Jack)));
       assert!(deck.len() == 4);
       test_deck(&deck, None, None, Some(&cards[3..7]));
 
@@ -699,10 +699,10 @@ mod test {
       test_deck(&deck, Some(&cards[3..6]), None, Some(&cards[6..7]));
 
       // Take 2 of 3 visible cards
-      assert!(deck.take_one() == Some(card!(Suit::Hearts, Rank::Number(10))));
+      assert!(deck.pop() == Some(card!(Suit::Hearts, Rank::Number(10))));
       assert!(deck.len() == 3);
       test_deck(&deck, Some(&cards[3..5]), None, Some(&cards[6..7]));
-      assert!(deck.take_one() == Some(card!(Suit::Clubs, Rank::Ace)));
+      assert!(deck.pop() == Some(card!(Suit::Clubs, Rank::Ace)));
       assert!(deck.len() == 2);
       test_deck(&deck, Some(&cards[3..4]), None, Some(&cards[6..7]));
 
@@ -727,10 +727,10 @@ mod test {
       test_deck(&deck, Some(&cards[0..2]), None, None);
 
       // Take 2 visible cards
-      assert!(deck.take_one() == Some(card!(Suit::Spades, Rank::Ace)));
+      assert!(deck.pop() == Some(card!(Suit::Spades, Rank::Ace)));
       assert!(deck.len() == 1);
       test_deck(&mut deck, Some(&cards[0..1]), None, None);
-      assert!(deck.take_one() == Some(card!(Suit::Spades, Rank::Jack)));
+      assert!(deck.pop() == Some(card!(Suit::Spades, Rank::Jack)));
       assert!(deck.len() == 0);
       test_deck(&mut deck, None, None, None);
 
