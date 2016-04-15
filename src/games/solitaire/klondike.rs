@@ -226,12 +226,32 @@ impl Pile {
     }
   }
 
+  pub fn top(&self) -> Option<Card> {
+    self.visible_cards.last().map(|c| *c)
+  }
+
   pub fn len(&self) -> usize {
     self.visible_cards.len() + self.hidden_cards.len()
   }
 
   pub fn is_empty(&self) -> bool {
     self.visible_cards.is_empty()
+  }
+
+  pub fn visible_cards(&self) -> Option<&[Card]> {
+    if self.visible_cards.is_empty() {
+      None
+    } else {
+      Some(&self.visible_cards[..])
+    }
+  }
+
+  pub fn hidden_cards(&self) -> Option<&[Card]> {
+    if self.hidden_cards.is_empty() {
+      None
+    } else {
+      Some(&self.hidden_cards[..])
+    }
   }
 
   pub fn reset(&mut self, cards: &[Card]) {
@@ -289,6 +309,40 @@ impl Pile {
     }
 
     return result;
+  }
+
+  pub fn pop(&mut self) -> Option<Card> {
+    match self.visible_cards.pop() {
+      Some(card) => {
+        self.check_visible();
+        Some(card)
+      },
+      None => None,
+    }
+  }
+
+  pub fn move_to(&mut self, target: &mut Pile) -> KlondikeResult<()> {
+    let index = {
+      match self.visible_cards.iter().position(|c| target.can_push(*c).is_ok()) {
+        Some(i) => i,
+        None => { return Err(KlondikeErr::InvalidMove); },
+      }
+    };
+
+    target.visible_cards.extend_from_slice(&self.visible_cards[index..]);
+
+    self.visible_cards.truncate(index);
+    self.check_visible();
+
+    Ok(())
+  }
+
+  fn check_visible(&mut self) {
+    if self.visible_cards.is_empty() {
+      if let Some(next_card) = self.hidden_cards.pop() {
+        self.visible_cards.push(next_card);
+      }
+    }
   }
 }
 
@@ -374,12 +428,28 @@ impl Foundation {
 
 #[cfg(test)]
 mod test {
+  pub use super::*;
+
   macro_rules! card {
     ($suit:expr, $rank:expr) => (Card::new($suit, $rank));
   }
 
+  pub fn test_cards(name: &str, expected: Option<&[Card]>, actual: Option<&[Card]>) {
+    match expected {
+      Some(expected) => {
+        assert!(actual.is_some(), "{}", name);
+        let actual = actual.unwrap();
+        assert!(actual.len() == expected.len(), "{}: {} != {}", name, expected.len(), actual.len());
+        for i in 0..expected.len() {
+          assert!(expected[i] == actual[i], "{}[{}]: {:?} != {:?}", name, i, expected[i], actual[i]);
+        }
+      },
+      None => assert!(actual.is_none()),
+    };
+  }
+
   mod pile {
-    use super::super::*;
+    use super::*;
     use cards::french::{Color, Suit, Rank, new_standard_deck};
 
     #[test]
@@ -387,6 +457,7 @@ mod test {
       let pile = Pile::new();
       assert!(pile.is_empty());
       assert!(pile.len() == 0);
+      assert!(pile.top().is_none());
       assert!(pile.next_card() == Some((None, Rank::King)));
     }
 
@@ -400,6 +471,213 @@ mod test {
       pile.reset(&[card!(Suit::Spades, Rank::Number(3)), card!(Suit::Hearts, Rank::Queen)]);
       assert!(pile.len() == 2);
       assert!(!pile.is_empty());
+
+      pile.pop().unwrap();
+      assert!(pile.len() == 1);
+      assert!(!pile.is_empty());
+
+      pile.pop().unwrap();
+      assert!(pile.len() == 0);
+      assert!(pile.is_empty());
+    }
+
+    #[test]
+    fn move_to_with_empty_piles() {
+      let mut source = Pile::new();
+      let mut target = Pile::new();
+      assert!(source.move_to(&mut target).is_err());
+    }
+
+    #[test]
+    fn move_to_with_source_empty() {
+      let mut source = Pile::new();
+
+      let mut target = Pile::new();
+      target.reset(&[card!(Suit::Hearts, Rank::Queen)]);
+
+      assert!(source.move_to(&mut target).is_err());
+    }
+
+    #[test]
+    fn move_to_with_empty_target_and_non_king() {
+      let mut source = Pile::new();
+      source.reset(&[card!(Suit::Hearts, Rank::Queen)]);
+
+      let mut target = Pile::new();
+
+      assert!(source.move_to(&mut target).is_err());
+    }
+
+    #[test]
+    fn move_to_with_empty_target_and_king() {
+      let mut source = Pile::new();
+      source.reset(&[card!(Suit::Hearts, Rank::King)]);
+
+      let mut target = Pile::new();
+
+      assert!(source.move_to(&mut target).is_ok());
+
+      assert!(source.is_empty());
+      assert!(target.len() == 1);
+      test_cards("target", Some(&[card!(Suit::Hearts, Rank::King)]), target.visible_cards());
+    }
+
+    #[test]
+    fn move_to_with_incompatible_piles() {
+      let mut source = Pile::new();
+      source.reset(&[card!(Suit::Hearts, Rank::Number(4))]);
+
+      let mut target = Pile::new();
+      target.reset(&[card!(Suit::Spades, Rank::Number(3))]);
+
+      assert!(source.move_to(&mut target).is_err());
+
+      assert!(source.len() == 1);
+      test_cards("source", Some(&[card!(Suit::Hearts, Rank::Number(4))]), source.visible_cards());
+      assert!(target.len() == 1);
+      test_cards("target", Some(&[card!(Suit::Spades, Rank::Number(3))]), target.visible_cards());
+    }
+
+    #[test]
+    fn move_to_with_one_card() {
+      let mut source = Pile::new();
+      source.reset(&[card!(Suit::Diamonds, Rank::Number(3)), card!(Suit::Hearts, Rank::Number(3))]);
+
+      let mut target = Pile::new();
+      target.reset(&[card!(Suit::Spades, Rank::Number(4))]);
+
+      assert!(source.move_to(&mut target).is_ok());
+
+      assert!(source.len() == 1);
+      test_cards("source", Some(&[card!(Suit::Diamonds, Rank::Number(3))]), source.visible_cards());
+      assert!(target.len() == 2);
+      test_cards("target", Some(&[card!(Suit::Spades, Rank::Number(4)), card!(Suit::Hearts, Rank::Number(3))]), target.visible_cards());
+    }
+
+    #[test]
+    fn move_to_partial() {
+      let mut source = Pile::new();
+      source.reset(&[
+        card!(Suit::Diamonds, Rank::Number(3)),
+        card!(Suit::Hearts, Rank::Number(9))
+      ]);
+
+      source.push(card!(Suit::Spades, Rank::Number(8))).unwrap();
+      source.push(card!(Suit::Diamonds, Rank::Number(7))).unwrap();
+      source.push(card!(Suit::Clubs, Rank::Number(6))).unwrap();
+
+      let mut target = Pile::new();
+      target.reset(&[card!(Suit::Clubs, Rank::Number(8))]);
+
+      assert!(source.move_to(&mut target).is_ok());
+
+      assert!(source.len() == 3);
+      test_cards("source.visible", Some(&[card!(Suit::Hearts, Rank::Number(9)), card!(Suit::Spades, Rank::Number(8))]), source.visible_cards());
+      test_cards("source.hidden", Some(&[card!(Suit::Diamonds, Rank::Number(3))]), source.hidden_cards());
+      assert!(target.len() == 3);
+      test_cards("target.visible", Some(&[card!(Suit::Clubs, Rank::Number(8)), card!(Suit::Diamonds, Rank::Number(7)), card!(Suit::Clubs, Rank::Number(6))]), target.visible_cards());
+      test_cards("target.hidden", None, target.hidden_cards());
+    }
+
+    #[test]
+    fn move_to_full() {
+      let mut source = Pile::new();
+      source.reset(&[
+        card!(Suit::Diamonds, Rank::Number(3)),
+        card!(Suit::Hearts, Rank::Number(9))
+      ]);
+
+      source.push(card!(Suit::Spades, Rank::Number(8))).unwrap();
+      source.push(card!(Suit::Diamonds, Rank::Number(7))).unwrap();
+      source.push(card!(Suit::Clubs, Rank::Number(6))).unwrap();
+
+      let mut target = Pile::new();
+      target.reset(&[card!(Suit::Spades, Rank::Number(10))]);
+
+      assert!(source.move_to(&mut target).is_ok());
+
+      assert!(source.len() == 1);
+      test_cards("source.visible", Some(&[card!(Suit::Diamonds, Rank::Number(3))]), source.visible_cards());
+      test_cards("source.hidden", None, source.hidden_cards());
+      assert!(target.len() == 5);
+      test_cards("target.visible", Some(&[
+        card!(Suit::Spades, Rank::Number(10)),
+        card!(Suit::Hearts, Rank::Number(9)),
+        card!(Suit::Spades, Rank::Number(8)),
+        card!(Suit::Diamonds, Rank::Number(7)),
+        card!(Suit::Clubs, Rank::Number(6))]), target.visible_cards());
+      test_cards("target.hidden", None, target.hidden_cards());
+    }
+
+    #[test]
+    fn visible_and_hidden_cards() {
+      let mut pile = Pile::new();
+      pile.reset(&[
+        card!(Suit::Hearts, Rank::Ace),
+        card!(Suit::Diamonds, Rank::Number(10)),
+      ]);
+
+      pile.push(card!(Suit::Clubs, Rank::Number(9))).unwrap();
+
+      test_cards("visible1", Some(&[card!(Suit::Diamonds, Rank::Number(10)), card!(Suit::Clubs, Rank::Number(9))]), pile.visible_cards());
+      test_cards("hidden1", Some(&[card!(Suit::Hearts, Rank::Ace)]), pile.hidden_cards());
+
+      pile.pop().unwrap();
+      test_cards("visible2", Some(&[card!(Suit::Diamonds, Rank::Number(10))]), pile.visible_cards());
+      test_cards("hidden2", Some(&[card!(Suit::Hearts, Rank::Ace)]), pile.hidden_cards());
+
+      pile.pop().unwrap();
+      test_cards("visible3", Some(&[card!(Suit::Hearts, Rank::Ace)]), pile.visible_cards());
+      test_cards("hidden3", None, pile.hidden_cards());
+
+      pile.pop().unwrap();
+      test_cards("visible4", None, pile.visible_cards());
+      test_cards("hidden4", None, pile.hidden_cards());
+    }
+
+    #[test]
+    fn top() {
+      let mut pile = Pile::new();
+      pile.reset(&[
+        card!(Suit::Hearts, Rank::Ace),
+        card!(Suit::Diamonds, Rank::Number(10)),
+      ]);
+
+      pile.push(card!(Suit::Clubs, Rank::Number(9))).unwrap();
+
+      assert!(pile.top() == Some(card!(Suit::Clubs, Rank::Number(9))));
+      pile.pop().unwrap();
+      assert!(pile.top() == Some(card!(Suit::Diamonds, Rank::Number(10))));
+      pile.pop().unwrap();
+      assert!(pile.top() == Some(card!(Suit::Hearts, Rank::Ace)));
+      pile.pop().unwrap();
+      assert!(pile.top().is_none());
+    }
+
+    #[test]
+    fn pop_on_empty() {
+      let mut pile = Pile::new();
+      assert!(pile.pop().is_none());
+    }
+
+    #[test]
+    fn pop() {
+      let mut pile = Pile::new();
+      pile.reset(&[
+        card!(Suit::Spades, Rank::King),
+        card!(Suit::Hearts, Rank::Ace),
+        card!(Suit::Diamonds, Rank::Number(10)),
+      ]);
+
+      pile.push(card!(Suit::Clubs, Rank::Number(9))).unwrap();
+      pile.push(card!(Suit::Hearts, Rank::Number(8))).unwrap();
+
+      assert!(pile.pop() == Some(card!(Suit::Hearts, Rank::Number(8))));
+      assert!(pile.pop() == Some(card!(Suit::Clubs, Rank::Number(9))));
+      assert!(pile.pop() == Some(card!(Suit::Diamonds, Rank::Number(10))));
+      assert!(pile.pop() == Some(card!(Suit::Hearts, Rank::Ace)));
+      assert!(pile.pop() == Some(card!(Suit::Spades, Rank::King)));
+      assert!(pile.pop().is_none());
     }
 
     #[test]
@@ -496,7 +774,7 @@ mod test {
   }
 
   mod foundation {
-    use super::super::*;
+    use super::*;
     use cards::french::{Suit, Rank};
 
     #[test]
@@ -542,7 +820,7 @@ mod test {
   }
 
   mod deck {
-    use super::super::*;
+    use super::*;
     use cards::french::{Suit, Rank};
 
     #[test]
@@ -593,20 +871,6 @@ mod test {
         },
         _ => panic!("unexpected remaining cards"),
       }
-    }
-
-    fn test_cards(name: &str, expected: Option<&[Card]>, actual: Option<&[Card]>) {
-      match expected {
-        Some(expected) => {
-          assert!(actual.is_some(), "{}", name);
-          let actual = actual.unwrap();
-          assert!(actual.len() == expected.len(), "{}: {} != {}", name, expected.len(), actual.len());
-          for i in 0..expected.len() {
-            assert!(expected[i] == actual[i], "{}[{}]: {:?} != {:?}", name, i, expected[i], actual[i]);
-          }
-        },
-        None => assert!(actual.is_none()),
-      };
     }
 
     fn test_deck(deck: &Deck, visible: Option<&[Card]>, waste: Option<&[Card]>, remaining: Option<&[Card]>) {
