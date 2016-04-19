@@ -94,7 +94,10 @@ impl KlondikeSolitaireGame {
       ],
       deck: Deck::new(draw_count),
     };
-    game.new_game(shuffler);
+
+    // Shuffle the cards and deal them
+    shuffler.shuffle(&mut game.cards);
+    game.reset();
 
     return game;
   }
@@ -116,10 +119,6 @@ impl KlondikeSolitaireGame {
     &mut self.foundations[KlondikeSolitaireGame::foundation_index(suit)]
   }
 
-  pub fn new_game<S: Shuffler>(&mut self, shuffler: &mut S) {
-    shuffler.shuffle(&mut self.cards);
-    self.reset();
-  }
 
   pub fn reset(&mut self) {
     for foundation in self.foundations.iter_mut() {
