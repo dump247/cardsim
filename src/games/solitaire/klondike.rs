@@ -512,10 +512,9 @@ impl Pile {
 
     self.visible_cards.clear();
 
-    match cards.last() {
-      Some(c) => self.visible_cards.push(*c),
-      None => {},
-    };
+    if let Some(c) = cards.last() {
+      self.visible_cards.push(*c);
+    }
   }
 
   pub fn next_card(&self) -> Option<(Option<Color>, Rank)> {
