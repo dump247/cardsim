@@ -1,4 +1,4 @@
-use cards::{Shuffler, french};
+use cards::{french, default_shuffle};
 use cards::french::{Rank, Suit, Color};
 use std::cmp;
 use std::collections::HashSet;
@@ -66,15 +66,21 @@ pub struct KlondikeSolitaireGame {
 }
 
 impl KlondikeSolitaireGame {
-  pub fn new<S: Shuffler>(shuffler: &mut S, draw_count: u8) -> KlondikeSolitaireGame {
-    let cards = french::new_standard_deck();
+  pub fn new(draw_count: u8) -> KlondikeSolitaireGame {
+    KlondikeSolitaireGame::new_shuffle(draw_count, default_shuffle)
+  }
 
+  pub fn new_shuffle<F>(draw_count: u8, mut shuffle: F) -> KlondikeSolitaireGame
+    where F: FnMut(&mut Vec<Card>) {
     // The order in the game struct initialization must match the indexes
     // returned by foundation_index function.
     debug_assert!(KlondikeSolitaireGame::foundation_index(Suit::Hearts) == 0);
     debug_assert!(KlondikeSolitaireGame::foundation_index(Suit::Diamonds) == 1);
     debug_assert!(KlondikeSolitaireGame::foundation_index(Suit::Spades) == 2);
     debug_assert!(KlondikeSolitaireGame::foundation_index(Suit::Clubs) == 3);
+
+    let mut cards = french::new_standard_deck();
+    shuffle(&mut cards);
 
     let mut game = KlondikeSolitaireGame {
       cards: cards,
@@ -96,8 +102,7 @@ impl KlondikeSolitaireGame {
       deck: Deck::new(draw_count),
     };
 
-    // Shuffle the cards and deal them
-    shuffler.shuffle(&mut game.cards);
+    // Deal the cards
     game.reset();
 
     return game;
