@@ -1,6 +1,7 @@
 use cards::{Shuffler, french};
 use cards::french::{Rank, Suit, Color};
 use std::cmp;
+use std::collections::HashSet;
 
 pub type Card = french::FrenchPlayingCard;
 
@@ -35,14 +36,14 @@ static RANKS: &'static [Rank; 13] = &[
     Rank::King,
 ];
 
-fn rank_index(rank: Rank) -> usize {
+fn rank_index(rank: Rank) -> Result<usize, String> {
   for (i, r) in RANKS.iter().enumerate() {
     if *r == rank {
-      return i;
+      return Ok(i);
     }
   }
 
-  panic!("Unkown rank {:?}", rank);
+  return Err(format!("Unsupported rank: {:?}", rank));
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -102,6 +103,47 @@ impl KlondikeSolitaireGame {
     return game;
   }
 
+  pub fn from(deck: Deck, mut foundations: [Foundation; NUM_FOUNDATIONS], piles: [Pile; NUM_PILES]) -> KlondikeSolitaireGame {
+    let mut cards = Vec::with_capacity(french::STANDARD_DECK_SIZE as usize);
+    cards.extend(deck.waste_cards().unwrap_or(&[]));
+    cards.extend(deck.visible_cards().unwrap_or(&[]));
+    cards.extend(deck.remaining_cards().unwrap_or(&[]));
+
+    // validate all cards distinct
+    {
+      let mut set: HashSet<_> = cards.iter().cloned().collect();
+
+      for f in &foundations {
+        for card in f.cards().iter() {
+          assert!(set.insert(*card), "Duplicate card in game: {:?}", card);
+          cards.push(*card);
+        }
+      }
+
+      for (i, p) in piles.iter().enumerate() {
+        assert!(p.hidden_cards().unwrap_or(&[]).len() <= i, "Pile {} hidden cards exceeds max: max={}", i, i);
+
+        for card in p.hidden_cards().unwrap_or(&[]).iter().chain(p.visible_cards().unwrap_or(&[])) {
+          assert!(set.insert(*card), "Duplicate card in game: {:?}", card);
+          cards.push(*card);
+        }
+      }
+    }
+
+    // validate 52 total cards (french::STANDARD_DECK_SIZE)
+    assert_eq!(cards.len(), french::STANDARD_DECK_SIZE as usize);
+
+    // ensure foundations are in expected order
+    foundations.sort_by_key(|f| KlondikeSolitaireGame::foundation_index(f.suit()));
+
+    return KlondikeSolitaireGame {
+      cards: cards,
+      deck: deck,
+      foundations: foundations,
+      piles: piles,
+    };
+  }
+
   fn foundation_index(suit: Suit) -> usize {
     match suit {
       Suit::Hearts   => 0,
@@ -119,6 +161,13 @@ impl KlondikeSolitaireGame {
     &mut self.foundations[KlondikeSolitaireGame::foundation_index(suit)]
   }
 
+  pub fn deck(&self) -> &Deck {
+    &self.deck
+  }
+
+  pub fn piles(&self) -> &[Pile] {
+    &self.piles[..]
+  }
 
   pub fn reset(&mut self) {
     for foundation in self.foundations.iter_mut() {
@@ -134,6 +183,22 @@ impl KlondikeSolitaireGame {
     self.piles[6].reset(&self.cards[21..28]);
 
     self.deck.reset(&self.cards[28..]);
+  }
+
+  /// True if the table is clear (all cards are in foundation).
+  pub fn is_clear(&self) -> bool {
+    let clear = self.foundations.iter().all(|f| f.is_full());
+
+    if clear {
+      debug_assert!(self.piles.iter().all(|p| p.is_empty()));
+      debug_assert!(self.deck.is_empty());
+    }
+
+    return clear;
+  }
+
+  pub fn draw(&mut self) {
+    self.deck.draw()
   }
 
   pub fn move_cards(&mut self, source: MoveSource, target: MoveTarget) -> KlondikeResult<()> {
@@ -267,6 +332,37 @@ impl Deck {
     }
   }
 
+  pub fn from(draw_count: u8, waste: &[Card], visible: &[Card], remaining: &[Card]) -> Deck {
+    let deck_size = waste.len() + visible.len() + remaining.len();
+    let mut cards = Vec::with_capacity(deck_size);
+
+    // draw_count is valid
+    assert!(draw_count > 0 && draw_count as usize <= MAX_DECK_SIZE);
+
+    // visible length <= draw_count
+    assert!(visible.len() <= draw_count as usize, "number of visible cards can not exceed draw count");
+
+    // deck can not exceed 24 cards (52 - initial pile contents)
+    assert!(deck_size <= MAX_DECK_SIZE, "deck size must be <= {}", MAX_DECK_SIZE);
+
+    // cards are all distinct and are standard ranks
+    {
+      let mut set = HashSet::new();
+      for card in waste.iter().chain(visible).chain(remaining) {
+        assert!(set.insert(card), "Duplicate card in deck: {:?}", card);
+        rank_index(card.rank()).unwrap();
+        cards.push(*card);
+      }
+    }
+
+    return Deck {
+      cards: cards,
+      draw_count: draw_count as usize,
+      visible_index: waste.len(),
+      visible_count: visible.len(),
+    };
+  }
+
   pub fn reset(&mut self, cards: &[Card]) {
     assert!(cards.len() <= MAX_DECK_SIZE);
 
@@ -282,6 +378,10 @@ impl Deck {
 
   pub fn len(&self) -> usize {
     self.cards.len()
+  }
+
+  pub fn draw_count(&self) -> u8 {
+    self.draw_count as u8
   }
 
   pub fn top(&self) -> Option<Card> {
@@ -350,6 +450,43 @@ impl Pile {
     }
   }
 
+  pub fn from(hidden: &[Card], visible: &[Card]) -> Pile {
+    // if there are hidden cards, must be at least one visible on top
+    assert!(hidden.is_empty() || visible.len() > 0, "there must be at least one visible card with hidden cards");
+
+    // hidden has <= 6 cards (the right-most pile)
+    assert!(hidden.len() <= 6, "no more than 6 hidden cards (the largest, right-most pile initially has 6)");
+
+    // cards are distinct
+    // card ranks only from the standard deck
+    // `visible` is in valid order (e.g. color and rank)
+    {
+      let mut set = HashSet::new();
+
+      let mut viter = visible.iter().peekable();
+      while let Some(card) = viter.next() {
+        assert!(set.insert(card), "Duplicate card in pile: {:?}", card);
+        let card_rank_index = rank_index(card.rank()).unwrap();
+
+        // check next card color and rank
+        if let Some(next_card) = viter.peek() {
+          assert!(card.color().other() == next_card.color(), "invalid visible card ordering");
+          assert!(card_rank_index - 1 == rank_index(next_card.rank()).unwrap(), "invalid visible card ordering");
+        }
+      }
+
+      for card in hidden.iter() {
+        assert!(set.insert(card), "Duplicate card in pile: {:?}", card);
+        rank_index(card.rank()).unwrap();
+      }
+    }
+
+    return Pile {
+      visible_cards: visible.iter().cloned().collect(),
+      hidden_cards: hidden.iter().cloned().collect(),
+    };
+  }
+
   pub fn top(&self) -> Option<Card> {
     self.visible_cards.last().map(|c| *c)
   }
@@ -397,7 +534,7 @@ impl Pile {
 
   pub fn next_card(&self) -> Option<(Option<Color>, Rank)> {
     match self.visible_cards.last() {
-      Some(card) => match rank_index(card.rank()) {
+      Some(card) => match rank_index(card.rank()).unwrap() {
         0 => None,
         i => Some((Some(card.color().other()), RANKS[i-1])),
       },
@@ -483,11 +620,36 @@ impl Foundation {
     }
   }
 
+  pub fn from(suit: Suit, rank: Option<Rank>) -> Foundation {
+    let mut f = Foundation::new(suit);
+    f.current_rank_index = match rank {
+      Some(rank) => Some(rank_index(rank).unwrap()),
+      None => None,
+    };
+    return f;
+  }
+
+  pub fn new_full(suit: Suit) -> Foundation {
+    Foundation::from(suit, Some(Rank::King))
+  }
+
   pub fn top(&self) -> Option<Card> {
     match self.current_rank_index {
       Some(i) => Some(Card::new(self.suit, RANKS[i])),
       None => None,
     }
+  }
+
+  pub fn cards(&self) -> Vec<Card> {
+    let mut cards = Vec::new();
+
+    if let Some(rank_index) = self.current_rank_index {
+      for index in 0..rank_index+1 {
+        cards.push(Card::new(self.suit, RANKS[index]))
+      }
+    }
+
+    return cards;
   }
 
   pub fn is_full(&self) -> bool {
@@ -572,6 +734,105 @@ mod test {
     };
   }
 
+  pub fn test_deck(deck: &Deck, visible: Option<&[Card]>, waste: Option<&[Card]>, remaining: Option<&[Card]>) {
+    test_cards("visible", visible, deck.visible_cards());
+    test_cards("waste", waste, deck.waste_cards());
+    test_cards("remaining", remaining, deck.remaining_cards());
+  }
+
+  pub fn test_pile(name: &str, pile: &Pile, hidden: Option<&[Card]>, visible: Option<&[Card]>) {
+    test_cards(&format!("{}.hidden", name), hidden, pile.hidden_cards());
+    test_cards(&format!("{}.visible", name), visible, pile.visible_cards());
+  }
+
+  mod game {
+    use super::*;
+    use cards::french::{Color, Suit, Rank, new_standard_deck};
+
+    #[test]
+    fn from_new() {
+      let cards = new_standard_deck();
+      let game = KlondikeSolitaireGame::from(
+        Deck::from(3, &[], &[], &cards[28..]),
+        [
+          Foundation::new(Suit::Clubs),
+          Foundation::new(Suit::Hearts),
+          Foundation::new(Suit::Spades),
+          Foundation::new(Suit::Diamonds),
+        ], [
+          Pile::from(&cards[0..0], &cards[0..1]),
+          Pile::from(&cards[1..2], &cards[2..3]),
+          Pile::from(&cards[3..5], &cards[5..6]),
+          Pile::from(&cards[6..9], &cards[9..10]),
+          Pile::from(&cards[10..14], &cards[14..15]),
+          Pile::from(&cards[15..20], &cards[20..21]),
+          Pile::from(&cards[21..27], &cards[27..28]),
+        ]
+      );
+
+      assert_eq!(game.deck().draw_count(), 3);
+      test_deck(game.deck(), None, None, Some(&cards[28..]));
+
+      assert!(game.foundation(Suit::Clubs).is_empty());
+      assert_eq!(game.foundation(Suit::Clubs).suit(), Suit::Clubs);
+      assert!(game.foundation(Suit::Spades).is_empty());
+      assert_eq!(game.foundation(Suit::Spades).suit(), Suit::Spades);
+      assert!(game.foundation(Suit::Diamonds).is_empty());
+      assert_eq!(game.foundation(Suit::Diamonds).suit(), Suit::Diamonds);
+      assert!(game.foundation(Suit::Hearts).is_empty());
+      assert_eq!(game.foundation(Suit::Hearts).suit(), Suit::Hearts);
+
+      test_pile("game.piles[0]", &game.piles()[0], None, Some(&cards[0..1]));
+      test_pile("game.piles[1]", &game.piles()[1], Some(&cards[1..2]), Some(&cards[2..3]));
+      test_pile("game.piles[2]", &game.piles()[2], Some(&cards[3..5]), Some(&cards[5..6]));
+      test_pile("game.piles[3]", &game.piles()[3], Some(&cards[6..9]), Some(&cards[9..10]));
+      test_pile("game.piles[4]", &game.piles()[4], Some(&cards[10..14]), Some(&cards[14..15]));
+      test_pile("game.piles[5]", &game.piles()[5], Some(&cards[15..20]), Some(&cards[20..21]));
+      test_pile("game.piles[6]", &game.piles()[6], Some(&cards[21..27]), Some(&cards[27..28]));
+
+      assert!(! game.is_clear());
+    }
+
+    #[test]
+    fn from_clear() {
+      let game = KlondikeSolitaireGame::from(
+        Deck::from(3, &[], &[], &[]),
+        [
+          Foundation::new_full(Suit::Clubs),
+          Foundation::new_full(Suit::Hearts),
+          Foundation::new_full(Suit::Spades),
+          Foundation::new_full(Suit::Diamonds),
+        ], [
+          Pile::new(),
+          Pile::new(),
+          Pile::new(),
+          Pile::new(),
+          Pile::new(),
+          Pile::new(),
+          Pile::new(),
+        ]
+      );
+
+      assert_eq!(game.deck().draw_count(), 3);
+      test_deck(game.deck(), None, None, None);
+
+      assert!(game.foundation(Suit::Clubs).is_full());
+      assert!(game.foundation(Suit::Spades).is_full());
+      assert!(game.foundation(Suit::Diamonds).is_full());
+      assert!(game.foundation(Suit::Hearts).is_full());
+
+      assert!(game.piles()[0].is_empty());
+      assert!(game.piles()[1].is_empty());
+      assert!(game.piles()[2].is_empty());
+      assert!(game.piles()[3].is_empty());
+      assert!(game.piles()[4].is_empty());
+      assert!(game.piles()[5].is_empty());
+      assert!(game.piles()[6].is_empty());
+
+      assert!(game.is_clear());
+    }
+  }
+
   mod pile {
     use super::*;
     use cards::french::{Color, Suit, Rank, new_standard_deck};
@@ -583,6 +844,101 @@ mod test {
       assert!(pile.len() == 0);
       assert!(pile.top().is_none());
       assert!(pile.next_card() == Some((None, Rank::King)));
+    }
+
+    #[test]
+    fn from_empty() {
+      let pile = Pile::from(
+        &[],
+        &[]);
+      assert!(pile.is_empty());
+    }
+
+    #[test]
+    fn from_empty_hidden_one_visible() {
+      let pile = Pile::from(
+        &[],
+        &[card!(Suit::Hearts, Rank::King)]);
+      assert!(pile.len() == 1);
+      assert!(pile.top() == Some(card!(Suit::Hearts, Rank::King)));
+    }
+
+    #[test]
+    fn from_empty_hidden_mult_visible() {
+      let pile = Pile::from(
+        &[],
+        &[card!(Suit::Hearts, Rank::Number(4)), card!(Suit::Spades, Rank::Number(3)), card!(Suit::Hearts, Rank::Number(2))]);
+      assert!(pile.len() == 3);
+      assert!(pile.hidden_cards().is_none());
+      test_cards("visible", Some(&[card!(Suit::Hearts, Rank::Number(4)), card!(Suit::Spades, Rank::Number(3)), card!(Suit::Hearts, Rank::Number(2))]), pile.visible_cards());
+    }
+
+    #[test]
+    fn from_mult_hidden_mult_visible() {
+      let pile = Pile::from(
+        &[card!(Suit::Hearts, Rank::Queen), card!(Suit::Spades, Rank::King), card!(Suit::Diamonds, Rank::Number(2))],
+        &[card!(Suit::Hearts, Rank::King), card!(Suit::Spades, Rank::Queen), card!(Suit::Hearts, Rank::Jack)]);
+      assert!(pile.len() == 6);
+      test_cards("hidden", Some(&[card!(Suit::Hearts, Rank::Queen), card!(Suit::Spades, Rank::King), card!(Suit::Diamonds, Rank::Number(2))]), pile.hidden_cards());
+      test_cards("visible", Some(&[card!(Suit::Hearts, Rank::King), card!(Suit::Spades, Rank::Queen), card!(Suit::Hearts, Rank::Jack)]), pile.visible_cards());
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_when_empty_visible() {
+      Pile::from(
+        &[card!(Suit::Hearts, Rank::Queen)],
+        &[]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_when_too_many_hidden() {
+      Pile::from(
+        &[card!(Suit::Hearts, Rank::Queen), card!(Suit::Spades, Rank::King), card!(Suit::Diamonds, Rank::Number(2)),
+        card!(Suit::Hearts, Rank::King), card!(Suit::Spades, Rank::Queen), card!(Suit::Hearts, Rank::Jack),
+        card!(Suit::Clubs, Rank::Ace)],
+        &[card!(Suit::Clubs, Rank::Number(5))]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_duplicate_cards() {
+      Pile::from(
+        &[card!(Suit::Hearts, Rank::Queen)],
+        &[card!(Suit::Hearts, Rank::Queen)]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_duplicate_cards2() {
+      Pile::from(
+        &[card!(Suit::Diamonds, Rank::Ace), card!(Suit::Diamonds, Rank::Ace)],
+        &[card!(Suit::Hearts, Rank::Queen)]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_duplicate_cards3() {
+      Pile::from(
+        &[card!(Suit::Hearts, Rank::Queen)],
+        &[card!(Suit::Diamonds, Rank::Ace), card!(Suit::Diamonds, Rank::Ace)]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_invalid_visible_rank() {
+      Pile::from(
+        &[],
+        &[card!(Suit::Diamonds, Rank::Number(3)), card!(Suit::Spades, Rank::Number(4))]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_invalid_visible_color() {
+      Pile::from(
+        &[],
+        &[card!(Suit::Diamonds, Rank::Number(3)), card!(Suit::Hearts, Rank::Number(2))]);
     }
 
     #[test]
@@ -911,6 +1267,12 @@ mod test {
     }
 
     #[test]
+    fn new_full() {
+      let f = Foundation::new_full(Suit::Hearts);
+      assert!(f.is_full());
+    }
+
+    #[test]
     fn foundation_push() {
       let mut f = Foundation::new(Suit::Hearts);
       assert!(f.next_rank() == Some(Rank::Ace));
@@ -940,6 +1302,20 @@ mod test {
       assert!(f.next_rank() == Some(Rank::King));
       f.push().unwrap();
       assert!(f.next_rank().is_none());
+    }
+
+    #[test]
+    fn from_none() {
+      let f = Foundation::from(Suit::Clubs, None);
+      assert!(f.top().is_none());
+      assert!(f.next_rank() == Some(Rank::Ace));
+    }
+
+    #[test]
+    fn from() {
+      let f = Foundation::from(Suit::Clubs, Some(Rank::Jack));
+      assert!(f.top() == Some(card!(Suit::Clubs, Rank::Jack)));
+      assert!(f.next_rank() == Some(Rank::Queen));
     }
   }
 
@@ -995,12 +1371,6 @@ mod test {
         },
         _ => panic!("unexpected remaining cards"),
       }
-    }
-
-    fn test_deck(deck: &Deck, visible: Option<&[Card]>, waste: Option<&[Card]>, remaining: Option<&[Card]>) {
-      test_cards("visible", visible, deck.visible_cards());
-      test_cards("waste", waste, deck.waste_cards());
-      test_cards("remaining", remaining, deck.remaining_cards());
     }
 
     #[test]
@@ -1160,6 +1530,138 @@ mod test {
       test_deck(&mut deck, None, None, None);
 
       // Deck is now empty
+    }
+
+    #[test]
+    fn from_empty() {
+      let deck = Deck::from(3, &[], &[], &[]);
+      assert!(deck.is_empty());
+      assert_eq!(deck.draw_count(), 3);
+    }
+
+    #[test]
+    fn from() {
+      let deck = Deck::from(3, &[card!(Suit::Spades, Rank::Number(3))], &[card!(Suit::Diamonds, Rank::Number(3))], &[card!(Suit::Diamonds, Rank::Jack)]);
+      test_cards("waste", Some(&[card!(Suit::Spades, Rank::Number(3))]), deck.waste_cards());
+      test_cards("visible", Some(&[card!(Suit::Diamonds, Rank::Number(3))]), deck.visible_cards());
+      test_cards("remaining", Some(&[card!(Suit::Diamonds, Rank::Jack)]), deck.remaining_cards());
+    }
+
+    #[test]
+    fn from_max_cards() {
+      // 24 is max deck size; 25 cards results in error
+      let deck = Deck::from(3, &[
+        card!(Suit::Spades, Rank::Number(10)),
+        card!(Suit::Spades, Rank::Number(9)),
+        card!(Suit::Spades, Rank::Number(8)),
+        card!(Suit::Spades, Rank::Number(7)),
+        card!(Suit::Spades, Rank::Number(6)),
+        card!(Suit::Spades, Rank::Number(5)),
+      ], &[
+        card!(Suit::Hearts, Rank::Number(10)),
+        card!(Suit::Hearts, Rank::Number(9)),
+        card!(Suit::Hearts, Rank::Number(8)),
+      ], &[
+        card!(Suit::Hearts, Rank::Number(7)),
+        card!(Suit::Hearts, Rank::Number(6)),
+        card!(Suit::Hearts, Rank::Number(5)),
+
+        card!(Suit::Diamonds, Rank::Number(10)),
+        card!(Suit::Diamonds, Rank::Number(9)),
+        card!(Suit::Diamonds, Rank::Number(8)),
+        card!(Suit::Diamonds, Rank::Number(7)),
+        card!(Suit::Diamonds, Rank::Number(6)),
+        card!(Suit::Diamonds, Rank::Number(5)),
+
+        card!(Suit::Clubs, Rank::Number(10)),
+        card!(Suit::Clubs, Rank::Number(9)),
+        card!(Suit::Clubs, Rank::Number(8)),
+        card!(Suit::Clubs, Rank::Number(7)),
+        card!(Suit::Clubs, Rank::Number(6)),
+        card!(Suit::Clubs, Rank::Number(5)),
+      ]);
+
+      test_cards("waste", Some(&[
+        card!(Suit::Spades, Rank::Number(10)),
+        card!(Suit::Spades, Rank::Number(9)),
+        card!(Suit::Spades, Rank::Number(8)),
+        card!(Suit::Spades, Rank::Number(7)),
+        card!(Suit::Spades, Rank::Number(6)),
+        card!(Suit::Spades, Rank::Number(5)),
+      ]), deck.waste_cards());
+      test_cards("visible", Some(&[
+        card!(Suit::Hearts, Rank::Number(10)),
+        card!(Suit::Hearts, Rank::Number(9)),
+        card!(Suit::Hearts, Rank::Number(8)),
+      ]), deck.visible_cards());
+      test_cards("remaining", Some(&[
+        card!(Suit::Hearts, Rank::Number(7)),
+        card!(Suit::Hearts, Rank::Number(6)),
+        card!(Suit::Hearts, Rank::Number(5)),
+
+        card!(Suit::Diamonds, Rank::Number(10)),
+        card!(Suit::Diamonds, Rank::Number(9)),
+        card!(Suit::Diamonds, Rank::Number(8)),
+        card!(Suit::Diamonds, Rank::Number(7)),
+        card!(Suit::Diamonds, Rank::Number(6)),
+        card!(Suit::Diamonds, Rank::Number(5)),
+
+        card!(Suit::Clubs, Rank::Number(10)),
+        card!(Suit::Clubs, Rank::Number(9)),
+        card!(Suit::Clubs, Rank::Number(8)),
+        card!(Suit::Clubs, Rank::Number(7)),
+        card!(Suit::Clubs, Rank::Number(6)),
+        card!(Suit::Clubs, Rank::Number(5)),
+      ]), deck.remaining_cards());
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_duplicate_card() {
+      Deck::from(3, &[card!(Suit::Spades, Rank::Number(3))], &[card!(Suit::Spades, Rank::Number(3))], &[]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_too_many_visible() {
+      Deck::from(1, &[], &[card!(Suit::Spades, Rank::Number(4)), card!(Suit::Spades, Rank::Number(3))], &[]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_error_too_many_cards() {
+      // 24 is max deck size; 25 cards results in error
+      Deck::from(1, &[
+        card!(Suit::Spades, Rank::Number(10)),
+        card!(Suit::Spades, Rank::Number(9)),
+        card!(Suit::Spades, Rank::Number(8)),
+        card!(Suit::Spades, Rank::Number(7)),
+        card!(Suit::Spades, Rank::Number(6)),
+        card!(Suit::Spades, Rank::Number(5)),
+
+        card!(Suit::Hearts, Rank::Number(10)),
+        card!(Suit::Hearts, Rank::Number(9)),
+        card!(Suit::Hearts, Rank::Number(8)),
+        card!(Suit::Hearts, Rank::Number(7)),
+        card!(Suit::Hearts, Rank::Number(6)),
+        card!(Suit::Hearts, Rank::Number(5)),
+
+        card!(Suit::Diamonds, Rank::Number(10)),
+        card!(Suit::Diamonds, Rank::Number(9)),
+        card!(Suit::Diamonds, Rank::Number(8)),
+        card!(Suit::Diamonds, Rank::Number(7)),
+        card!(Suit::Diamonds, Rank::Number(6)),
+        card!(Suit::Diamonds, Rank::Number(5)),
+
+        card!(Suit::Clubs, Rank::Number(10)),
+        card!(Suit::Clubs, Rank::Number(9)),
+        card!(Suit::Clubs, Rank::Number(8)),
+        card!(Suit::Clubs, Rank::Number(7)),
+        card!(Suit::Clubs, Rank::Number(6)),
+        card!(Suit::Clubs, Rank::Number(5)),
+
+        card!(Suit::Clubs, Rank::Queen),
+      ], &[], &[]);
     }
   }
 }
