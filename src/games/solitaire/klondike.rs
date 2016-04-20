@@ -174,6 +174,10 @@ impl KlondikeSolitaireGame {
     &self.piles[..]
   }
 
+  pub fn pile(&self, index: usize) -> &Pile {
+    &self.piles[index]
+  }
+
   pub fn reset(&mut self) {
     for foundation in self.foundations.iter_mut() {
       foundation.clear();
@@ -764,13 +768,13 @@ mod test {
       assert!(game.foundation(Suit::Hearts).is_empty());
       assert_eq!(game.foundation(Suit::Hearts).suit(), Suit::Hearts);
 
-      test_pile("game.piles[0]", &game.piles()[0], &[], &cards[0..1]);
-      test_pile("game.piles[1]", &game.piles()[1], &cards[1..2], &cards[2..3]);
-      test_pile("game.piles[2]", &game.piles()[2], &cards[3..5], &cards[5..6]);
-      test_pile("game.piles[3]", &game.piles()[3], &cards[6..9], &cards[9..10]);
-      test_pile("game.piles[4]", &game.piles()[4], &cards[10..14], &cards[14..15]);
-      test_pile("game.piles[5]", &game.piles()[5], &cards[15..20], &cards[20..21]);
-      test_pile("game.piles[6]", &game.piles()[6], &cards[21..27], &cards[27..28]);
+      test_pile("game.piles[0]", game.pile(0), &[], &cards[0..1]);
+      test_pile("game.piles[1]", game.pile(1), &cards[1..2], &cards[2..3]);
+      test_pile("game.piles[2]", game.pile(2), &cards[3..5], &cards[5..6]);
+      test_pile("game.piles[3]", game.pile(3), &cards[6..9], &cards[9..10]);
+      test_pile("game.piles[4]", game.pile(4), &cards[10..14], &cards[14..15]);
+      test_pile("game.piles[5]", game.pile(5), &cards[15..20], &cards[20..21]);
+      test_pile("game.piles[6]", game.pile(6), &cards[21..27], &cards[27..28]);
 
       assert!(! game.is_clear());
     }
@@ -803,13 +807,13 @@ mod test {
       assert!(game.foundation(Suit::Diamonds).is_full());
       assert!(game.foundation(Suit::Hearts).is_full());
 
-      assert!(game.piles()[0].is_empty());
-      assert!(game.piles()[1].is_empty());
-      assert!(game.piles()[2].is_empty());
-      assert!(game.piles()[3].is_empty());
-      assert!(game.piles()[4].is_empty());
-      assert!(game.piles()[5].is_empty());
-      assert!(game.piles()[6].is_empty());
+      assert!(game.pile(0).is_empty());
+      assert!(game.pile(1).is_empty());
+      assert!(game.pile(2).is_empty());
+      assert!(game.pile(3).is_empty());
+      assert!(game.pile(4).is_empty());
+      assert!(game.pile(5).is_empty());
+      assert!(game.pile(6).is_empty());
 
       assert!(game.is_clear());
     }
