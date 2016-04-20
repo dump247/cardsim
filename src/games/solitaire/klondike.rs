@@ -72,13 +72,6 @@ impl KlondikeSolitaireGame {
 
   pub fn new_shuffle<F>(draw_count: u8, mut shuffle: F) -> KlondikeSolitaireGame
     where F: FnMut(&mut Vec<Card>) {
-    // The order in the game struct initialization must match the indexes
-    // returned by foundation_index function.
-    debug_assert!(KlondikeSolitaireGame::foundation_index(Suit::Hearts) == 0);
-    debug_assert!(KlondikeSolitaireGame::foundation_index(Suit::Diamonds) == 1);
-    debug_assert!(KlondikeSolitaireGame::foundation_index(Suit::Spades) == 2);
-    debug_assert!(KlondikeSolitaireGame::foundation_index(Suit::Clubs) == 3);
-
     let mut cards = french::new_standard_deck();
     shuffle(&mut cards);
 
@@ -734,6 +727,34 @@ mod test {
   mod game {
     use super::*;
     use cards::french::{Suit, new_standard_deck};
+
+    #[test]
+    fn new() {
+      let game = KlondikeSolitaireGame::new(3);
+
+      // Can't test the specific ordering of cards since the cards should be
+      // shuffled randomly.
+
+      assert_eq!(game.deck().draw_count(), 3);
+      assert_eq!(game.deck().len(), 24);
+
+      assert!(game.foundation(Suit::Clubs).is_empty());
+      assert_eq!(game.foundation(Suit::Clubs).suit(), Suit::Clubs);
+      assert!(game.foundation(Suit::Spades).is_empty());
+      assert_eq!(game.foundation(Suit::Spades).suit(), Suit::Spades);
+      assert!(game.foundation(Suit::Diamonds).is_empty());
+      assert_eq!(game.foundation(Suit::Diamonds).suit(), Suit::Diamonds);
+      assert!(game.foundation(Suit::Hearts).is_empty());
+      assert_eq!(game.foundation(Suit::Hearts).suit(), Suit::Hearts);
+
+      assert_eq!(game.pile(0).len(), 1);
+      assert_eq!(game.pile(1).len(), 2);
+      assert_eq!(game.pile(2).len(), 3);
+      assert_eq!(game.pile(3).len(), 4);
+      assert_eq!(game.pile(4).len(), 5);
+      assert_eq!(game.pile(5).len(), 6);
+      assert_eq!(game.pile(6).len(), 7);
+    }
 
     #[test]
     fn from_new() {
