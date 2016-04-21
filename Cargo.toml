@@ -5,3 +5,4 @@ authors = ["Cory Thomas <cthomas7577@gmail.com>"]
 
 [dependencies]
 rand = "0.3.14"
+clap = "2.2.6"
