@@ -38,7 +38,7 @@ fn run_klondike<T: strategies::solitaire::klondike::KlondikeStrategy>(game_count
             let mut rng = rand::StdRng::new().unwrap();
 
             for _ in 0..game_count {
-                let mut game = games::solitaire::klondike::KlondikeSolitaireGame::new_shuffle(1, move |mut c| rng.shuffle(&mut c));
+                let mut game = games::solitaire::klondike::KlondikeSolitaireGame::new_shuffle(1, |mut c| rng.shuffle(&mut c));
                 let mut strategy = T::new();
                 strategy.run(&mut game);
 
