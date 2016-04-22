@@ -664,6 +664,10 @@ impl Foundation {
     }
   }
 
+  pub fn can_push(&self, card: Card) -> bool {
+    self.suit == card.suit() && self.next_rank() == Some(card.rank())
+  }
+
   pub fn push(&mut self) -> Option<Card> {
     match self.current_rank_index {
       Some(i) if i == RANKS.len() - 1 => None,
