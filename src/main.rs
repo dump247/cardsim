@@ -12,6 +12,9 @@ use rand::Rng;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use strategies::solitaire::klondike::{GameFilter, GameStrategy, AllFilter};
+use strategies::solitaire::klondike::simple::SimpleKlondikeStrategy;
+
 fn validate_num(name: &str, min: usize, max: usize, v: String) -> Result<(), String> {
     match v.parse::<usize>() {
         Ok(v) if v >= min && v <= max => Ok(()),
@@ -20,7 +23,7 @@ fn validate_num(name: &str, min: usize, max: usize, v: String) -> Result<(), Str
     }
 }
 
-fn run_klondike<T: strategies::solitaire::klondike::KlondikeStrategy>(game_count: usize, thread_count: usize) {
+fn run_klondike<S: GameStrategy, F: GameFilter>(game_count: usize, thread_count: usize) {
     let mut threads = Vec::with_capacity(thread_count);
     let games_per_thread = game_count / thread_count;
     let add_game = game_count % thread_count;
@@ -36,20 +39,28 @@ fn run_klondike<T: strategies::solitaire::klondike::KlondikeStrategy>(game_count
 
         threads.push(thread::spawn(move || {
             let mut rng = rand::StdRng::new().unwrap();
+            let mut strategy = S::new();
+            let filter = F::new();
 
             for _ in 0..game_count {
-                let mut game = games::solitaire::klondike::KlondikeSolitaireGame::new_shuffle(1, |mut c| rng.shuffle(&mut c));
-                let mut strategy = T::new();
-                strategy.run(&mut game);
+                loop {
+                    let mut game = games::solitaire::klondike::KlondikeSolitaireGame::new_shuffle(1, |mut c| rng.shuffle(&mut c));
+
+                    if filter.accept(&game) {
+                      strategy.play(&mut game);
+
+                      if game.is_clear() {
+                        wins.fetch_add(1, Ordering::Relaxed);
+                      }
+
+                      break;
+                    }
+                }
 
                 let g = games.fetch_add(1, Ordering::Relaxed);
                 if g % 10000 == 0 {
                     println!("{} games", g);
                 }
-
-                if game.is_clear() {
-                  wins.fetch_add(1, Ordering::Relaxed);
-                };
             }
         }));
     }
@@ -85,7 +96,7 @@ fn main() {
     if let Some(matches) = matches.subcommand_matches("solitaire:klondike") {
         let game_count = matches.value_of("games").unwrap().parse::<usize>().unwrap();
         let thread_count = matches.value_of("concurrency").unwrap().parse::<usize>().unwrap();
-        run_klondike::<strategies::solitaire::klondike::simple::SimpleKlondikeStrategy>(game_count, thread_count);
+        run_klondike::<SimpleKlondikeStrategy, AllFilter>(game_count, thread_count);
         return;
     }
 

@@ -1,14 +1,14 @@
 use games::solitaire::klondike::*;
-use super::KlondikeStrategy;
+use super::GameStrategy;
 
 pub struct SimpleKlondikeStrategy;
 
-impl KlondikeStrategy for SimpleKlondikeStrategy {
+impl GameStrategy for SimpleKlondikeStrategy {
   fn new() -> SimpleKlondikeStrategy {
     SimpleKlondikeStrategy
   }
 
-  fn run(&mut self, game: &mut KlondikeSolitaireGame) {
+  fn play(&mut self, game: &mut KlondikeSolitaireGame) {
     let mut moved = false;
 
     while ! game.is_clear() {
